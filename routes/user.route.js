@@ -3,15 +3,21 @@ const router = express.Router();
 const db = require('../database/database');
 
 const validateDate = (date) => {
+    if (!date) {
+        return { validDate: new Date() };
+    }
+
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (date && !dateRegex.test(date)) {
+    if (!dateRegex.test(date)) {
         return { error: 'Date must be in YYYY-MM-DD format' };
     }
+
     const validDate = new Date(date);
-    if (date && isNaN(validDate.getTime())) {
+    if (isNaN(validDate.getTime())) {
         return { error: 'Invalid date, must be a valid date in YYYY-MM-DD format' };
     }
-    return { validDate: validDate || new Date() };
+
+    return { validDate };
 };
 
 const checkUserExists = (userId, callback) => {
@@ -111,9 +117,11 @@ router.get('/users/:_id/logs', (req, res) => {
     const { _id } = req.params;
     const { from, to, limit } = req.query;
 
-    const { error } = validateDate(from) || validateDate(to);
-    if (error) {
-        return res.status(400).json({ error });
+    const { error: fromError, validDate: validFrom } = validateDate(from);
+    const { error: toError, validDate: validTo } = validateDate(to);
+
+    if (fromError || toError) {
+        return res.status(400).json({ error: fromError || toError });
     }
 
     let validLimit = 100;
@@ -134,41 +142,52 @@ router.get('/users/:_id/logs', (req, res) => {
         }
 
         let query = 'SELECT id, description, duration, date FROM exercise WHERE userId = ?';
+        let countQuery = 'SELECT COUNT(*) AS total FROM exercise WHERE userId = ?';
         let params = [_id];
 
-        if (from) {
+        if (validFrom) {
             query += ' AND date >= ?';
-            params.push(from);
+            countQuery += ' AND date >= ?';
+            params.push(validFrom.toISOString().split('T')[0]);
         }
 
-        if (to) {
+        if (validTo) {
             query += ' AND date <= ?';
-            params.push(to);
+            countQuery += ' AND date <= ?';
+            params.push(validTo.toISOString().split('T')[0]);
         }
 
         query += ' ORDER BY date ASC';
 
-        if (validLimit) {
-            query += ' LIMIT ?';
-            params.push(validLimit);
-        }
-
-        db.all(query, params, (err, logs) => {
+        db.get(countQuery, params, (err, countResult) => {
             if (err) {
                 return res.status(500).json({ error: 'Database error' });
             }
 
-            const formattedLogs = logs.map(log => ({
-                description: log.description,
-                duration: log.duration,
-                date: log.date
-            }));
+            let totalCount = countResult ? countResult.total : 0;
 
-            res.json({
-                userId: user.id,
-                username: user.username,
-                count: formattedLogs.length,
-                logs: formattedLogs
+            if (validLimit) {
+                query += ' LIMIT ?';
+                params.push(validLimit);
+            }
+
+            db.all(query, params, (err, logs) => {
+                if (err) {
+                    return res.status(500).json({ error: 'Database error' });
+                }
+
+                const formattedLogs = logs.map(log => ({
+                    description: log.description,
+                    duration: log.duration,
+                    date: log.date
+                }));
+
+                res.json({
+                    userId: user.id,
+                    username: user.username,
+                    count: totalCount,
+                    logs: formattedLogs
+                });
             });
         });
     });
