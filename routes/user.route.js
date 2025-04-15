@@ -4,7 +4,7 @@ const db = require('../database/database');
 
 const validateDate = (date) => {
     if (!date) {
-        return { validDate: new Date() };
+        return { validDate: null };
     }
 
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
